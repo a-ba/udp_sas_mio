@@ -17,7 +17,7 @@
 //! use std::net::SocketAddr;
 //! use std::time::Duration;
 //! 
-//! use mio::{Events,Poll,PollOpt,Ready,Token};
+//! use mio::{Events,Interest,Poll,Token};
 //! use mio::net::UdpSocket;
 //! 
 //! use udp_sas_mio::UdpSas;
@@ -34,7 +34,7 @@
 //!     // Note: we will use 127.0.0.23 as source/destination address
 //!     //       for our datagrams (to demonstrate the crate features)
 //!     //
-//!     let srv = UdpSocket::bind_sas(&"0.0.0.0:30012".parse::<SocketAddr>().unwrap())?;
+//!     let mut srv = UdpSocket::bind_sas("0.0.0.0:30012".parse::<SocketAddr>().unwrap())?;
 //!     let srv_addr : SocketAddr = "127.0.0.23:30012".parse().unwrap();
 //! 
 //!     // Create the client socket and bind it to an anonymous port
@@ -42,7 +42,7 @@
 //!     // Note: we will use 127.0.0.45 as source/destination address
 //!     //       for our datagrams (to demonstrate the crate features)
 //!     //
-//!     let cli = UdpSocket::bind_sas(&"0.0.0.0:0".parse::<SocketAddr>().unwrap())?;
+//!     let mut cli = UdpSocket::bind_sas("0.0.0.0:0".parse::<SocketAddr>().unwrap())?;
 //!     let cli_addr = SocketAddr::new(
 //!         "127.0.0.45".parse().unwrap(),
 //!         cli.local_addr().unwrap().port());
@@ -53,31 +53,31 @@
 //!     let msg2 = "Forty-two";
 //!
 //!     // create the Poll object and register the sockets
-//!     let poll = Poll::new()?;
+//!     let mut poll = Poll::new()?;
 //!     const SRV : Token = Token(0);
 //!     const CLI : Token = Token(1);
-//!     poll.register(&cli, CLI, Ready::writable(), PollOpt::level() | PollOpt::oneshot())?;
-//!     poll.register(&srv, SRV, Ready::readable(), PollOpt::level())?;
+//!     poll.registry().register(&mut cli, CLI, Interest::WRITABLE)?;
+//!     poll.registry().register(&mut srv, SRV, Interest::READABLE)?;
 //!     
 //!     let timeout = Some(Duration::from_millis(100));
 //!     let mut events = Events::with_capacity(1);
 //!     loop
 //!     {
 //!         let nb = poll.poll(&mut events, timeout)?;
-//!         assert!(nb != 0, "timeout");
+//!         assert!(!events.is_empty(), "timeout");
 //!         
 //!         for event in events.iter()
 //!         {
 //!             match event.token() {
-//!                 CLI if event.readiness().is_writable() => {
+//!                 CLI if event.is_writable() => {
 //!                     // send a request (msg1) from the client to the server
 //!                     let nb = cli.send_sas(msg1.as_bytes(), &srv_addr, &cli_addr.ip())?;
 //!                     assert_eq!(nb, msg1.as_bytes().len());
 //!                     
-//!                     poll.reregister(&cli, CLI, Ready::readable(), PollOpt::level())?;
+//!                     poll.registry().reregister(&mut cli, CLI, Interest::READABLE)?;
 //!                 },
 //!                 
-//!                 SRV if event.readiness().is_readable() => {
+//!                 SRV if event.is_readable() => {
 //!                     // receive the request on the server
 //!                     let (nb, peer, local) = srv.recv_sas(&mut buf)?;
 //!                     assert_eq!(peer,  cli_addr);
@@ -85,17 +85,16 @@
 //!                     assert_eq!(nb,          msg1.as_bytes().len());
 //!                     assert_eq!(&buf[0..nb], msg1.as_bytes());
 //!                     
-//!                     poll.reregister(&srv, SRV, Ready::writable(),
-//!                                     PollOpt::level() | PollOpt::oneshot())?;
+//!                     poll.registry().reregister(&mut srv, SRV, Interest::WRITABLE)?;
 //!                 },
 //!                 
-//!                 SRV if event.readiness().is_writable() => {
+//!                 SRV if event.is_writable() => {
 //!                     // send a reply (msg2) from the server to the client
 //!                     let nb = srv.send_sas(msg2.as_bytes(), &cli_addr, &srv_addr.ip())?;
 //!                     assert_eq!(nb, msg2.as_bytes().len());
 //!                 },
 //!                 
-//!                 CLI if event.readiness().is_readable() => {
+//!                 CLI if event.is_readable() => {
 //!                     // receive the reply on the client
 //!                     let (nb, peer, local) = cli.recv_sas(&mut buf)?;
 //!                     assert_eq!(peer,  srv_addr);
@@ -137,7 +136,7 @@ pub trait UdpSas : Sized
     ///
     /// The new socket is configured with the `IP_PKTINFO` or `IPV6_RECVPKTINFO` option enabled.
     /// 
-    fn bind_sas(addr: &SocketAddr) -> io::Result<Self>;
+    fn bind_sas(addr: SocketAddr) -> io::Result<Self>;
 
 
     /// Sends a datagram to the given `target` address and use the `local` address as its
@@ -158,7 +157,7 @@ pub trait UdpSas : Sized
 
 impl UdpSas for UdpSocket
 {
-    fn bind_sas(addr: &SocketAddr) -> io::Result<UdpSocket> {
+    fn bind_sas(addr: SocketAddr) -> io::Result<UdpSocket> {
         let sock = UdpSocket::bind(addr)?;
         set_pktinfo(sock.as_raw_fd())?;
         Ok(sock)

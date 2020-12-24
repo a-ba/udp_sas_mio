@@ -13,4 +13,8 @@ edition = "2018"
 
 [dependencies]
 udp_sas = "0.1.2"
-mio = "0.6"
+mio = {version = "0.7", features = ["net"]}
+
+[dev-dependencies]
+mio = {version = "0.7", features = ["net", "os-poll"]}
+
